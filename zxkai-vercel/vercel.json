@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/verify-turnstile", "destination": "/api/verify-turnstile" },
+    { "source": "/api/get-config", "destination": "/api/get-config" }
+  ]
+}
