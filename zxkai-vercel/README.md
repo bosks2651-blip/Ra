@@ -1,43 +1,44 @@
-# ZXKAI Galaxy Console 🌌
+# ZXKAI Galaxy Console
 
-A Firebase connection dashboard with Cloudflare Turnstile verification, featuring space-themed ZXKAI branding with glitch effects.
+A Firebase Connection Dashboard with space-themed UI, Cloudflare Turnstile verification, multi-connection monitoring, and Telegram forwarding.
 
 ## Features
 
-- 🔐 Cloudflare Turnstile verification (shown once for new users)
-- 🌠 Space theme with glitchy ZXKAI branding
-- 🔥 Firebase connection interface
-- 🛡️ Server-side token verification
-- ⚡ Serverless API functions (Vercel-ready)
-- 🔑 All API keys stored in environment variables
+- 🔐 **Cloudflare Turnstile** — Server-side verification on first visit
+- 🌌 **Space Theme** — Animated stars, glitch effects, ZXKAI branding
+- 📱 **Firebase SMS Monitor** — Connect to Firebase RTDB, view devices & SMS
+- 🔗 **Share Links** — Generate permanent share links for connections
+- 👁️ **Watch All** — Monitor all saved Firebase connections simultaneously
+- 📨 **Telegram Forwarder** — Forward incoming SMS to Telegram bot in real-time
+- 🛡️ **Anti-DevTools** — Integrity shield with decoy page
 
 ## Project Structure
 
 ```
 zxkai-vercel/
-├── public/
-│   └── index.html          # Main frontend (Turnstile + Firebase UI)
+├── index.html          # Main SPA (static)
 ├── api/
-│   ├── verify-turnstile.js # Server-side Turnstile verification
-│   └── get-config.js       # Serves site key from env vars
-├── vercel.json             # Vercel routing & build config
-├── package.json            # Project metadata
-├── .env.example            # Environment variable template
-├── .gitignore              # Git ignore rules
-└── README.md               # This file
+│   ├── get-config.js   # Serverless: returns Turnstile site key
+│   └── verify-turnstile.js  # Serverless: verifies Turnstile token
+├── vercel.json         # Vercel routing config
+├── package.json        # Project metadata
+├── .env.example        # Environment variable template
+├── .gitignore          # Git ignore rules
+└── README.md           # This file
 ```
 
 ## Deployment to Vercel
 
 ### Prerequisites
+- A [Vercel](https://vercel.com) account
+- [Git](https://git-scm.com/) installed locally
+- A [GitHub](https://github.com) account (recommended)
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Vercel CLI](https://vercel.com/docs/cli) or a Vercel account
-- A GitHub/GitLab/Bitbucket account (for Git-based deployment)
+### Step-by-Step Deployment
 
-### Option A: Deploy via Vercel Dashboard (Recommended)
+#### Option A: Deploy via GitHub (Recommended)
 
-1. **Push to GitHub:**
+1. **Create a GitHub repository:**
    ```bash
    cd zxkai-vercel
    git init
@@ -48,35 +49,35 @@ zxkai-vercel/
    git push -u origin main
    ```
 
-2. **Import in Vercel:**
+2. **Import to Vercel:**
    - Go to [vercel.com/new](https://vercel.com/new)
-   - Click "Import Project"
-   - Select your GitHub repository
-   - Framework Preset: **Other**
-   - Root Directory: Leave as `/` (default)
+   - Click "Import Git Repository"
+   - Select your `zxkai-galaxy-console` repository
+   - Framework Preset: **Other** (leave as-is)
+   - Build Command: **Leave empty**
+   - Output Directory: **Leave empty**
    - Click **Deploy**
 
 3. **Set Environment Variables:**
-   - Go to your project in Vercel Dashboard
-   - Navigate to **Settings** → **Environment Variables**
-   - Add the following variables:
-     | Name | Value |
-     |------|-------|
-     | `TURNSTILE_SITE_KEY` | `0x4AAAAAAEKiOX-U7bxSSzIY` |
-     | `TURNSTILE_SECRET_KEY` | `0x4AAAAAAEKiOfyHZKDnYxQkqsw9n8Xb-ks` |
-   - Select all environments (Production, Preview, Development)
+   - After deploy, go to **Project Settings → Environment Variables**
+   - Add these two variables:
+     ```
+     TURNSTILE_SITE_KEY = 0x4AAAAAAEKiOX-U7bxSSzIY
+     TURNSTILE_SECRET_KEY = 0x4AAAAAAEKiOfyHZKDnYxQkqsw9n8Xb-ks
+     ```
+   - Apply to: **Production**, **Preview**, and **Development**
    - Click **Save**
 
 4. **Redeploy:**
    - Go to **Deployments** tab
-   - Click the three dots on the latest deployment
-   - Select **Redeploy**
+   - Click the 3-dot menu on the latest deployment
+   - Click **Redeploy** to pick up the new environment variables
 
-### Option B: Deploy via Vercel CLI
+#### Option B: Deploy via Vercel CLI
 
 1. **Install Vercel CLI:**
    ```bash
-   npm install -g vercel
+   npm i -g vercel
    ```
 
 2. **Login:**
@@ -87,51 +88,54 @@ zxkai-vercel/
 3. **Deploy:**
    ```bash
    cd zxkai-vercel
-   vercel
+   vercel --prod
    ```
-   - Follow the prompts (link to existing project or create new)
+   - When prompted:
+     - Set up and deploy? **Y**
+     - Which scope? Select your account
+     - Link to existing project? **N**
+     - Project name? **zxkai-galaxy-console**
+     - Directory? **./**
+     - Override settings? **N**
 
-4. **Set Environment Variables via CLI:**
+4. **Set Environment Variables:**
    ```bash
-   vercel env add TURNSTILE_SITE_KEY
-   vercel env add TURNSTILE_SECRET_KEY
+   vercel env add TURNSTILE_SITE_KEY production
+   # Enter: 0x4AAAAAAEKiOX-U7bxSSzIY
+   
+   vercel env add TURNSTILE_SECRET_KEY production
+   # Enter: 0x4AAAAAAEKiOfyHZKDnYxQkqsw9n8Xb-ks
    ```
-   - Enter values when prompted
-   - Select all environments
 
-5. **Deploy to Production:**
+5. **Redeploy with env vars:**
    ```bash
    vercel --prod
    ```
 
-### Post-Deployment
+### Post-Deployment Verification
 
-- Your app will be live at: `https://your-project-name.vercel.app`
-- Turnstile verification appears on first visit
-- After verification, users see the Firebase connection interface
-- Verified status is stored in localStorage (shown once per browser)
+1. Visit your Vercel URL (e.g., `https://zxkai-galaxy-console.vercel.app`)
+2. You should see the Cloudflare Turnstile verification gate
+3. Complete verification — it will only appear once (stored in localStorage)
+4. Connect a Firebase RTDB to verify full functionality
 
-## Local Development
+### Environment Variables Reference
 
-```bash
-# Install Vercel CLI
-npm install -g vercel
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `TURNSTILE_SITE_KEY` | `0x4AAAAAAEKiOX-U7bxSSzIY` | Client-side widget rendering |
+| `TURNSTILE_SECRET_KEY` | `0x4AAAAAAEKiOfyHZKDnYxQkqsw9n8Xb-ks` | Server-side token verification |
 
-# Create .env.local with your keys
-cp .env.example .env.local
-# Edit .env.local with actual key values
+### Troubleshooting
 
-# Run locally
-vercel dev
-```
+- **"Configuration error" on Turnstile gate:** Environment variables not set. Add them in Vercel Settings → Environment Variables, then redeploy.
+- **404 on API routes:** Ensure the `api/` folder with `.js` files is in the root of your deployment.
+- **Watch All not loading:** Verify your Firebase RTDB uses `/clients` as the device node and `/messages/{deviceId}` for SMS.
 
-## Security Notes
+## Tech Stack
 
-- Secret key is NEVER exposed to the client
-- Site key is served via `/api/get-config` endpoint
-- Server-side verification ensures token validity
-- Environment variables are managed through Vercel Dashboard
-
-## License
-
-MIT
+- Pure HTML/CSS/JS (no frameworks)
+- Vercel Serverless Functions (Node.js 18+)
+- Cloudflare Turnstile
+- Firebase Realtime Database (client-side)
+- Telegram Bot API (client-side)
