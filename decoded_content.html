@@ -3078,7 +3078,7 @@ async function loadWatchAllDevices(accounts,isBackground){
     const account=accounts[i];
     const label=account.label||account.url.split('//')[1]?.split('.')[0]||'Connection '+(i+1);
     try{
-      showToast('⏳ Connecting: '+label+' ('+(i+1)+'/'+accounts.length+')');
+      if(!isBackground) showToast('⏳ Connecting: '+label+' ('+(i+1)+'/'+accounts.length+')');
       const url=account.url.replace(/\/$/,'');
       const key=account.key;
       const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),45000);
