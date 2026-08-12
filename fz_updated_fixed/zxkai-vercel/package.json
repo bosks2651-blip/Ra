@@ -1,0 +1,10 @@
+{
+  "name": "zxkai-galaxy-console",
+  "version": "1.0.0",
+  "description": "ZXKAI Galaxy Console - Firebase Connection Dashboard with Cloudflare Turnstile Verification",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
